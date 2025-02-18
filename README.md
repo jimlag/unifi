@@ -1,5 +1,13 @@
 # unifi-rclone
 
+Compatible devices:
+
+UNVR
+
+UNVR-PRO
+
+----
+
 - Custom Install Location: Installs rclone in **/data** instead of **/usr/bin/**.
 
 - Ensures /data exists before installing.
