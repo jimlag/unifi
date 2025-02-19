@@ -1,22 +1,18 @@
 #!/bin/bash
 
 INSTALL_DIR="/data"  # Custom installation directory
-RCLONE_PATH="$INSTALL_DIR/rclone"
+RCLONE_DIR="$INSTALL_DIR/rclone"
+RCLONE_PATH="$RCLONE_DIR/rclone"
+BACKUP_SCRIPT="$INSTALL_DIR/Google_Drive_Backups.sh"
 
-# Enable dry-run mode if the flag is provided
-DRY_RUN=false
-if [[ "$1" == "--dry-run" ]]; then
-    DRY_RUN=true
-    echo "[DRY-RUN MODE ENABLED] No changes will be made."
-fi
+# Ask user for the location name
+read -rp "Enter the location name of this device: " LOCATION
 
-# Ensure the installation directory exists
-if [[ ! -d "$INSTALL_DIR" ]]; then
-    echo "Creating installation directory at $INSTALL_DIR..."
-    if [[ "$DRY_RUN" == false ]]; then
-        sudo mkdir -p "$INSTALL_DIR"
-        sudo chown "$(whoami)" "$INSTALL_DIR"
-    fi
+# Ensure the installation directories exist
+if [[ ! -d "$RCLONE_DIR" ]]; then
+    echo "Creating installation directory at $RCLONE_DIR..."
+    sudo mkdir -p "$RCLONE_DIR"
+    sudo chown "$(whoami)" "$RCLONE_DIR"
 fi
 
 # Function to install required packages
@@ -24,19 +20,16 @@ install_package() {
     PACKAGE_NAME=$1
     if ! command -v "$PACKAGE_NAME" &> /dev/null; then
         echo "$PACKAGE_NAME is not installed. Installing..."
-        if [[ "$DRY_RUN" == false ]]; then
-            sudo apt update && sudo apt install -y "$PACKAGE_NAME"
-        else
-            echo "[DRY-RUN] Skipping installation of $PACKAGE_NAME."
-        fi
+        sudo apt update && sudo apt install -y "$PACKAGE_NAME"
     else
         echo "$PACKAGE_NAME is already installed."
     fi
 }
 
-# Install nano and unzip before proceeding
+# Install required packages
 install_package nano
 install_package unzip
+install_package cron
 
 # Function to get the installed version of rclone
 get_installed_version() {
@@ -49,7 +42,7 @@ get_installed_version() {
 
 # Function to get the latest available version of rclone
 get_latest_version() {
-    curl -s https://api.github.com/repos/rclone/rclone/releases/latest | grep '"tag_name":' | awk -F '"' '{print $4}' | sed 's/v//'
+    curl -s https://api.github.com/repos/rclone/rclone/releases/latest | grep '"tag_name":' | awk -F '"' '{print $4}'
 }
 
 # Function to detect system architecture
@@ -64,34 +57,54 @@ get_architecture() {
     esac
 }
 
-# Function to update/install rclone in /data
+# Function to update/install rclone in /data/rclone
 update_rclone() {
     ARCH=$(get_architecture)
     LATEST_VERSION=$(get_latest_version)
 
     echo "Detected system architecture: $ARCH"
-    echo "Would download rclone $LATEST_VERSION for $ARCH into $INSTALL_DIR..."
+    echo "Downloading rclone $LATEST_VERSION for $ARCH into $RCLONE_DIR..."
 
-    if [[ "$DRY_RUN" == true ]]; then
-        echo "[DRY-RUN] Skipping download and installation."
-        return
-    fi
-
-    URL="https://downloads.rclone.org/v$LATEST_VERSION/rclone-v$LATEST_VERSION-linux-$ARCH.zip"
+    URL="https://downloads.rclone.org/$LATEST_VERSION/rclone-$LATEST_VERSION-linux-$ARCH.zip"
     TEMP_DIR=$(mktemp -d)
     cd "$TEMP_DIR" || exit
 
     curl -O "$URL"
-    unzip "rclone-v$LATEST_VERSION-linux-$ARCH.zip"
-    cd "rclone-v$LATEST_VERSION-linux-$ARCH" || exit
+    unzip "rclone-$LATEST_VERSION-linux-$ARCH.zip"
+    cd "rclone-$LATEST_VERSION-linux-$ARCH" || exit
 
-    mv rclone "$INSTALL_DIR/"
+    mv rclone "$RCLONE_DIR/"
     chmod +x "$RCLONE_PATH"
 
     cd ~
     rm -rf "$TEMP_DIR"
 
-    echo "rclone installed in $INSTALL_DIR successfully!"
+    echo "rclone installed in $RCLONE_DIR successfully!"
+}
+
+# Function to create the Google Drive backup script
+create_backup_script() {
+    echo "Creating backup script at $BACKUP_SCRIPT..."
+
+    BACKUP_CONTENT="#!/bin/bash
+$RCLONE_DIR/rclone copy --update --transfers 30 --max-age 2M --checkers 8 --contimeout 60s --timeout 300s --retries 3 --low-level-retries 10 \"/etc/unifi-protect/backups/\" \"Google>
+
+    echo "$BACKUP_CONTENT" > "$BACKUP_SCRIPT"
+    chmod +x "$BACKUP_SCRIPT"
+    echo "Backup script created successfully!"
+}
+
+# Function to set up the cron job for automatic backups at 8 AM
+setup_cron_job() {
+    CRON_JOB="0 8 * * * /bin/bash /data/Google_Drive_Backups.sh"
+    
+    # Check if the cron job already exists
+    if crontab -l | grep -q "$BACKUP_SCRIPT"; then
+        echo "Cron job already exists. Skipping..."
+    else
+        (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
+        echo "Cron job added: Runs daily at 8 AM."
+    fi
 }
 
 # Get versions
@@ -103,22 +116,29 @@ echo "Latest version: $LATEST_VERSION"
 
 # Compare versions
 if [[ "$INSTALLED_VERSION" == "none" ]]; then
-    echo "rclone is not installed. Would install now..."
-    if [[ "$DRY_RUN" == false ]]; then
-        update_rclone
-    fi
+    echo "rclone is not installed. Installing now..."
+    update_rclone
 elif [[ "$INSTALLED_VERSION" != "$LATEST_VERSION" ]]; then
-    echo "Newer version available. Would update..."
-    if [[ "$DRY_RUN" == false ]]; then
-        update_rclone
-    fi
+    echo "Newer version available ($LATEST_VERSION). Updating..."
+    update_rclone
 else
     echo "rclone is already up to date."
 fi
 
 # Ensure rclone is in PATH
-if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
-    echo "Adding $INSTALL_DIR to PATH..."
-    echo "export PATH=\$PATH:$INSTALL_DIR" >> ~/.bashrc
+if ! echo "$PATH" | grep -q "$RCLONE_DIR"; then
+    echo "Adding $RCLONE_DIR to PATH..."
+    echo "export PATH=\$PATH:$RCLONE_DIR" >> ~/.bashrc
     source ~/.bashrc
 fi
+
+# Create the backup script
+create_backup_script
+
+# Set up the cron job
+setup_cron_job
+
+# Run the backup script
+echo "Running backup script now..."
+/bin/bash "$BACKUP_SCRIPT"
+
