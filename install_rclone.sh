@@ -42,7 +42,7 @@ get_installed_version() {
 
 # Function to get the latest available version of rclone
 get_latest_version() {
-    curl -s https://api.github.com/repos/rclone/rclone/releases/latest | grep '"tag_name":' | awk -F '"' '{print $4}'
+    curl -s https://api.github.com/repos/rclone/rclone/releases/latest | grep '"tag_name":' | awk -F '"' '{print $4}' | sed 's/v//'
 }
 
 # Function to detect system architecture
@@ -63,15 +63,15 @@ update_rclone() {
     LATEST_VERSION=$(get_latest_version)
 
     echo "Detected system architecture: $ARCH"
-    echo "Downloading rclone $LATEST_VERSION for $ARCH into $RCLONE_DIR..."
+    echo "Downloading rclone v$LATEST_VERSION for $ARCH into $RCLONE_DIR..."
 
-    URL="https://downloads.rclone.org/$LATEST_VERSION/rclone-$LATEST_VERSION-linux-$ARCH.zip"
+    URL="https://downloads.rclone.org/v$LATEST_VERSION/rclone-v$LATEST_VERSION-linux-$ARCH.zip"
     TEMP_DIR=$(mktemp -d)
     cd "$TEMP_DIR" || exit
 
     curl -O "$URL"
-    unzip "rclone-$LATEST_VERSION-linux-$ARCH.zip"
-    cd "rclone-$LATEST_VERSION-linux-$ARCH" || exit
+    unzip "rclone-v$LATEST_VERSION-linux-$ARCH.zip"
+    cd "rclone-v$LATEST_VERSION-linux-$ARCH" || exit
 
     mv rclone "$RCLONE_DIR/"
     chmod +x "$RCLONE_PATH"
@@ -81,13 +81,12 @@ update_rclone() {
 
     echo "rclone installed in $RCLONE_DIR successfully!"
 }
-
 # Function to create the Google Drive backup script
 create_backup_script() {
     echo "Creating backup script at $BACKUP_SCRIPT..."
 
     BACKUP_CONTENT="#!/bin/bash
-$RCLONE_DIR/rclone copy --update --transfers 30 --max-age 2M --checkers 8 --contimeout 60s --timeout 300s --retries 3 --low-level-retries 10 \"/etc/unifi-protect/backups/\" \"Google>
+$data/rclone copy --update --transfers 30 --checkers 8 --contimeout 60s --timeout 300s --retries 3 --low-level-retries 10 \"/etc/unifi-protect/backups/\" \"Google Drive Backup:Backu>
 
     echo "$BACKUP_CONTENT" > "$BACKUP_SCRIPT"
     chmod +x "$BACKUP_SCRIPT"
@@ -112,14 +111,14 @@ INSTALLED_VERSION=$(get_installed_version)
 LATEST_VERSION=$(get_latest_version)
 
 echo "Installed version: $INSTALLED_VERSION"
-echo "Latest version: $LATEST_VERSION"
+echo "Latest version: v$LATEST_VERSION"
 
 # Compare versions
 if [[ "$INSTALLED_VERSION" == "none" ]]; then
     echo "rclone is not installed. Installing now..."
     update_rclone
-elif [[ "$INSTALLED_VERSION" != "$LATEST_VERSION" ]]; then
-    echo "Newer version available ($LATEST_VERSION). Updating..."
+elif [[ "$INSTALLED_VERSION" != "v$LATEST_VERSION" ]]; then
+    echo "Newer version available (v$LATEST_VERSION). Updating..."
     update_rclone
 else
     echo "rclone is already up to date."
@@ -137,8 +136,4 @@ create_backup_script
 
 # Set up the cron job
 setup_cron_job
-
-# Run the backup script
-echo "Running backup script now..."
-/bin/bash "$BACKUP_SCRIPT"
 
