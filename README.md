@@ -14,6 +14,8 @@ UNVR-PRO
 
 ✅ Creates /data Directory If Needed
 
+✅ Check/Updates to latest version available.
+
 ✅ Ensures both **nano** and **unzip** are installed before proceeding.
 
 ✅ Maintains **--dry-run** support to preview actions without making changes.
